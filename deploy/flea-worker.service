@@ -1,0 +1,19 @@
+[Unit]
+Description=Flea hourly replay discovery and analysis worker
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=flea
+WorkingDirectory=/opt/flea
+EnvironmentFile=-/etc/flea.env
+ExecStart=/usr/bin/python3 -m flea.worker
+Restart=on-failure
+RestartSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/flea/data /var/lib/flea/Zero-K
+[Install]
+WantedBy=multi-user.target
