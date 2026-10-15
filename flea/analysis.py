@@ -36,6 +36,8 @@ def analyze(path):
                 events.append(event)
     if not complete:
         raise ValueError('Incomplete engine export: game_over marker missing')
+    if meta.get('fullView') is False:
+        raise ValueError('Replay exporter did not obtain full spectator view')
     if not meta or not meta.get('mapWidth') or not meta.get('mapHeight'):
         raise ValueError('Missing map dimensions')
     events.sort(key=lambda e: e['time'])
