@@ -12,9 +12,6 @@ function firstFactories(r) {
 function stateLabel(r) { return ({ready:'● ANALYZED',queued:'◷ QUEUED',processing:'◌ PROCESSING',blocked:'! BLOCKED',failed:'! BLOCKED'})[r.status] || r.status; }
 async function loadStatus() {
   serviceStatus = await api('/api/status');
-  const counts = serviceStatus.counts;
-  const sum = Object.values(counts).reduce((a,b) => a+b,0);
-  $('#stats').innerHTML = `<div><span>REPLAYS INDEXED</span><strong>${sum.toLocaleString()}</strong></div><div><span>ANALYSIS COMPLETE</span><strong>${(counts.ready || 0).toLocaleString()}</strong></div><div><span>IN THE QUEUE</span><strong>${((counts.queued || 0)+(counts.processing || 0)).toLocaleString()}</strong></div><div><span>DISCOVERY INTERVAL</span><strong>01<span> hour</span></strong></div>`;
   $('#sync-label').textContent = serviceStatus.states.last_scrape ? 'Archive synced · hourly discovery' : 'Waiting for first discovery';
 }
 async function loadReplays() {
@@ -105,3 +102,4 @@ document.addEventListener('change',e=>{if(e.target.id==='production-team')render
 document.addEventListener('input',e=>{if(e.target.id==='scrubber')setCursor(Number(e.target.value));if(e.target.id==='event-search')renderEvents();});
 document.addEventListener('keydown',e=>{if(e.key==='/' && !['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)){e.preventDefault();$('#search').focus();}});
 window.addEventListener('hashchange',route);route();
+
