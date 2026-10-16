@@ -2,7 +2,9 @@
 
 A Zero-K replay explorer with hourly discovery, durable oldest-first processing,
 and engine-derived match timelines. Runs directly on Windows and Linux x64.
-Node.js 22.16 or newer is required. Docker is not used.
+Node.js 22.16 or newer is required. Native hosting does not require Docker.
+An optional [Cloud Run Jobs worker](docs/cloud-run.md) uses a container built by
+Google Cloud Build, with private Cloud Storage results.
 
 Windows resource benchmarks: `npm run benchmark`. See [benchmarking](docs/benchmarking.md)
 for replay selection, warm-cache runs, and measurement limitations.

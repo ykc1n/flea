@@ -1,5 +1,10 @@
 # Production-ready replay discovery and analysis
 
+October 16 addendum: the operator requested an optional Cloud Run Jobs worker.
+Container deployment is now permitted for that path; the native deployment
+requirements below remain unchanged. See [Cloud Run implementation](../cloud-run.md)
+for its pilot scope and remaining hosted queue/frontend integration.
+
 Publication status: local draft for GitHub Issues in ykc1n/flea; use the agreed ready-for-agent label after review.
 Review status: native deployment requirements and testing seams accepted for implementation by the subsequent implement request. Release evidence is tracked separately.
 

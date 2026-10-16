@@ -17,6 +17,7 @@
     "requeue": "node dist/scripts/requeue.js",
     "backup": "node dist/scripts/backup.js",
     "verify": "node dist/scripts/verify.js",
+    "cloud-job": "node dist/scripts/cloud-job.js",
     "benchmark": "npm run build && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/benchmark.ps1"
   },
   "devDependencies": {
@@ -25,6 +26,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@google-cloud/storage": "^8.4.0",
     "yauzl": "^3.4.0"
   }
 }

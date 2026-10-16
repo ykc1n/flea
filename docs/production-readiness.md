@@ -6,7 +6,9 @@ design and the final release gate still require a shared-understanding check.
 ## Product and deployment
 
 - One operator runs a public, read-only replay explorer.
-- Run directly on Windows and Linux; Docker is excluded. Share application logic
+- Run directly on Windows and Linux without requiring Docker. On October 16,
+  the operator additionally requested an optional Cloud Run Jobs container worker;
+  see [cloud deployment](cloud-run.md). Share application logic
   and use platform-specific acquisition and process-control adapters where needed.
 - A supported Node.js installation is a host prerequisite. Flea automatically
   acquires exact replay engines, games, maps, and their dependencies.
