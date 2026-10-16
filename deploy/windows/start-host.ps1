@@ -14,7 +14,7 @@ $standardLog = Join-Path $logDirectory 'host.log'
 $errorLog = Join-Path $logDirectory 'host-error.log'
 $hostProcess = Start-Process `
   -FilePath $NodePath `
-  -ArgumentList @($hostScript) `
+  -ArgumentList ('"' + $hostScript + '"') `
   -WorkingDirectory $project `
   -WindowStyle Hidden `
   -RedirectStandardOutput $standardLog `

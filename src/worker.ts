@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { analyze, InvalidExport } from './analysis.js';
 import { fetchBytes, scrape } from './scrape.js';
 import { connect, recoverJobs, saveAnalysis, type Database, type ReplayRow } from './store.js';
-import { execute, recoverExecution } from './execution.js';
+import { execute, recoverExecution, ExecutionOwnershipError } from './execution.js';
 import { acquire } from './acquisition.js';
 import { cacheRoot, cleanupJobs, dataRoot, positiveSetting, reclaimIdleCache, requireSpace, storageStatus, StoragePaused } from './storage.js';
 import type { Replay } from './types.js';
@@ -19,12 +19,23 @@ export interface WorkerDependencies {
 const registry = () => resolve(dataRoot(), 'execution.json');
 const setState = (db: Database, key: string, value: string) => db.prepare('INSERT OR REPLACE INTO state(key,value) VALUES(?,?)').run(key, value);
 
+function failurePolicy(error: unknown, processing: boolean, row: ReplayRow, now: number) {
+  const attempts = row.attempts + Number(processing);
+  if (error instanceof InvalidExport) return { kind: 'processing', reason: 'Replay telemetry is incomplete or invalid; operator retry required', retry: null, acquisitionIncrement: 0 };
+  if (error instanceof StoragePaused) return { kind: 'storage', reason: 'Analysis paused for available storage', retry: processing && attempts >= 3 ? null : now + 60_000, acquisitionIncrement: 0 };
+  if (processing) return { kind: 'processing', reason: 'Replay analysis failed; see operator logs', retry: attempts >= 3 ? null : now + 60_000, acquisitionIncrement: 0 };
+  return { kind: 'acquisition', reason: 'Replay dependencies could not be acquired; acquisition will retry', retry: now + ([300_000, 1_800_000][row.acquisition_attempts] ?? 21_600_000), acquisitionIncrement: 1 };
+}
+
 export async function processOne(db: Database, dependencies: WorkerDependencies = {}): Promise<boolean> {
   dependencies.signal?.throwIfAborted();
   const now = dependencies.now ?? Date.now;
   // An explicitly empty custom command disables analysis for metadata-only use.
   if (process.env.FLEA_PROCESSOR === '') return false;
-  if (!db.prepare("SELECT 1 FROM replays WHERE status='processing'").get()) reclaimIdleCache();
+  if (!db.prepare("SELECT 1 FROM replays WHERE status='processing'").get()) {
+    const ready = db.prepare("SELECT id FROM replays WHERE status='ready'").all() as Array<{ id: number }>;
+    reclaimIdleCache(new Set(ready.map(row => row.id)));
+  }
   const storage = storageStatus();
   setState(db, 'storage', JSON.stringify(storage));
   if (storage.paused) { setState(db, 'acquisition_pause', storage.reason!); return false; }
@@ -70,17 +81,14 @@ export async function processOne(db: Database, dependencies: WorkerDependencies 
     // Only discard source artifacts after the published analysis is durable.
     for (const path of [replayPath, outputPath]) { try { rmSync(path, { force: true }); } catch (error) { console.error('Deferred job cleanup', error); } }
   } catch (error) {
+    if (error instanceof ExecutionOwnershipError) throw error;
     console.error('Processing battle ' + row.id + ' failed', error);
-    const invalid = error instanceof InvalidExport;
-    const paused = error instanceof StoragePaused;
-    const attempts = row.attempts + (processing ? 1 : 0);
-    const retry = invalid || (processing && attempts >= 3) ? null : now() + (paused ? 60_000 : processing ? 60_000 : [300_000, 1_800_000][row.acquisition_attempts] ?? 21_600_000);
-    const reason = paused ? 'Analysis paused for available storage' : invalid ? 'Replay telemetry is incomplete or invalid; operator retry required' : processing ? 'Replay analysis failed; see operator logs' : 'Replay dependencies could not be acquired; acquisition will retry';
+    const policy = failurePolicy(error, processing, row, now());
     db.prepare("UPDATE replays SET status='blocked',error=?,blocked_kind=?,retry_at=?,acquisition_attempts=acquisition_attempts+?,updated=CURRENT_TIMESTAMP WHERE id=?")
-      .run(reason, paused ? 'storage' : processing ? 'processing' : 'acquisition', retry, processing || paused ? 0 : 1, row.id);
+      .run(policy.reason, policy.kind, policy.retry, policy.acquisitionIncrement, row.id);
     rmSync(outputPath, { force: true });
     rmSync(replayPath + '.partial', { force: true });
-    if (paused) setState(db, 'acquisition_pause', reason);
+    if (policy.kind === 'storage') setState(db, 'acquisition_pause', policy.reason);
   }
   setState(db, 'storage', JSON.stringify(storageStatus()));
   return true;

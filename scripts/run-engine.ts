@@ -10,12 +10,11 @@ function argument(name: string): string {
   return value;
 }
 
-function run(argv: string[], cwd: string, timeout: number): Promise<void> {
+function run(argv: string[], cwd: string): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: 'inherit', windowsHide: true });
-    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Engine timed out')); }, timeout);
     child.once('error', reject);
-    child.once('exit', code => { clearTimeout(timer); code === 0 ? resolvePromise() : reject(new Error(`Engine exited with status ${code}`)); });
+    child.once('close', code => { code === 0 ? resolvePromise() : reject(new Error(`Engine exited with status ${code}`)); });
   });
 }
 
@@ -40,7 +39,8 @@ if (!existsSync(config)) {
 }
 const exported = resolve(root, 'LuaUI', 'Logs', 'flea-events.jsonl');
 rmSync(exported, { force: true });
-await run([executable, '--write-dir', root, replay], root, Math.max(1, Number(process.env.FLEA_PROCESS_TIMEOUT ?? 3600) - 30) * 1000);
+// The managed execution owner controls this runner and its engine as one tree.
+await run([executable, '--write-dir', root, replay], root);
 if (!existsSync(exported)) throw new Error('No export: enable local widgets and Flea Replay Export in the Zero-K installation');
 copyFileSync(exported, output);
 rmSync(exported, { force: true });

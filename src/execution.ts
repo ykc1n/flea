@@ -6,9 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
+export class ExecutionOwnershipError extends Error {}
 
-export async function terminate(pid: number): Promise<void> {
+export async function terminate(pid: number, token?: string): Promise<void> {
   if (process.platform === 'win32') {
+    if (token) {
+      const wrapper = fileURLToPath(new URL('./process-host.ps1', import.meta.url));
+      await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper, '-Token', token, '-Cleanup'], { windowsHide: true, timeout: 40_000 });
+    }
     try { await exec('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }); }
     catch (error) {
       try { process.kill(pid, 0); } catch { return; }
@@ -31,7 +36,7 @@ export async function recoverExecution(registry: string): Promise<void> {
     try { command = readFileSync(`/proc/${record.pid}/cmdline`, 'utf8'); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
-  if (command.includes(record.token) && command.includes('process-host.js')) await terminate(record.pid);
+  if (command.includes(record.token) && /process-host\.(js|ps1)/.test(command)) await terminate(record.pid, record.token);
   unlinkSync(registry);
 }
 
@@ -53,18 +58,26 @@ export async function execute(argv: string[], options: ExecutionOptions): Promis
   if (options.registry) await recoverExecution(options.registry);
   const descriptor = openSync(options.log, 'w');
   const token = randomUUID();
-  const wrapper = fileURLToPath(new URL('./process-host.js', import.meta.url));
-  const child = spawn(process.execPath, [wrapper, token, JSON.stringify(argv)], {
-    cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32', windowsHide: true,
+  const windows = process.platform === 'win32';
+  const wrapper = fileURLToPath(new URL(windows ? './process-host.ps1' : './process-host.js', import.meta.url));
+  const command = windows ? 'powershell.exe' : process.execPath;
+  const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper, '-Token', token, '-Payload', Buffer.from(JSON.stringify(argv)).toString('base64')] : [wrapper, token, JSON.stringify(argv)];
+  const child = spawn(command, args, {
+    cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: windows ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'], detached: !windows, windowsHide: true,
   });
+  let ownershipResolved = !child.pid;
   let failure: Error | undefined;
   let written = 0;
   let killing: Promise<void> | undefined;
+  let rejectOwnership!: (error: Error) => void;
+  const ownershipFailure = new Promise<never>((_done, reject) => { rejectOwnership = reject; });
+  void ownershipFailure.catch(() => {});
   const kill = (error: Error) => {
     failure ??= error;
-    if (child.pid) killing ??= terminate(child.pid);
-    // Attach immediately; the result is awaited after close below.
-    void killing?.catch(() => {});
+    if (child.pid && !killing) {
+      killing = terminate(child.pid, token);
+      void killing.catch(error => rejectOwnership(new ExecutionOwnershipError('Engine termination failed', { cause: error })));
+    }
   };
   const log = (data: Buffer) => {
     try {
@@ -74,6 +87,7 @@ export async function execute(argv: string[], options: ExecutionOptions): Promis
   };
   child.stdout!.on('data', log);
   child.stderr!.on('data', log);
+  child.stdin?.on('error', () => { /* Early wrapper exit is reported through close. */ });
   const completed = new Promise<number | null>((done, reject) => {
     child.once('error', reject);
     child.once('close', done);
@@ -89,21 +103,25 @@ export async function execute(argv: string[], options: ExecutionOptions): Promis
       writeFileSync(options.registry, JSON.stringify({ pid: child.pid, token }));
     }
     // The wrapper cannot start its engine until ownership is durable.
-    child.send('start');
-    const code = await completed;
+    if (windows) child.stdin!.end('start\n'); else child.send('start');
+    const code = await Promise.race([completed, ownershipFailure]);
     if (killing) await killing;
+    if (code === 125) throw new ExecutionOwnershipError('Windows owner could not confirm descendant termination');
     // Remove remaining descendants even if a command abandoned them on success.
     if (process.platform !== 'win32' && child.pid) await terminate(child.pid);
+    ownershipResolved = true;
     if (failure) throw failure;
     if (code !== 0) throw new Error(`Processor exited with status ${code}`);
   } catch (error) {
-    if (child.pid) await terminate(child.pid);
-    await completed.catch(() => {});
+    if (!ownershipResolved && child.pid) {
+      try { await terminate(child.pid, token); await completed.catch(() => {}); ownershipResolved = true; }
+      catch (terminationError) { throw new ExecutionOwnershipError('Engine ownership could not be resolved; worker must stop', { cause: terminationError }); }
+    }
     throw error;
   } finally {
     clearTimeout(timer); clearInterval(monitor);
     options.signal?.removeEventListener('abort', abort);
     closeSync(descriptor);
-    if (options.registry && existsSync(options.registry)) unlinkSync(options.registry);
+    if (ownershipResolved && options.registry && existsSync(options.registry)) unlinkSync(options.registry);
   }
 }

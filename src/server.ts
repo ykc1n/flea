@@ -28,7 +28,7 @@ function staticFile(pathname: string, response: ServerResponse): void {
   }
   const contentTypes: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon' };
   response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': contentTypes[extname(requested)] ?? 'application/octet-stream', 'Content-Length': statSync(requested).size });
-  createReadStream(requested).pipe(response);
+  createReadStream(requested).on('error', error => { console.error(error); response.destroy(); }).pipe(response);
 }
 
 export function createFleaServer() {
@@ -36,7 +36,10 @@ export function createFleaServer() {
     if (request.method !== 'GET' || !request.url) { json(response, { error: 'Method not allowed' }, 405); return; }
     let url: URL;
     try { url = new URL(request.url, 'http://localhost'); } catch { json(response, { error: 'Invalid URL' }, 400); return; }
-    if (!url.pathname.startsWith('/api/')) { staticFile(url.pathname, response); return; }
+    if (!url.pathname.startsWith('/api/')) {
+      try { staticFile(url.pathname, response); } catch (error) { console.error(error); json(response, { error: 'Static file unavailable' }, 500); }
+      return;
+    }
     let db: ReturnType<typeof connect> | undefined;
     try {
       db = connect();
@@ -44,7 +47,7 @@ export function createFleaServer() {
         const states = Object.fromEntries((db.prepare("SELECT key,value FROM state WHERE key IN ('last_scrape','scrape_error','storage','acquisition_pause')").all() as Array<{ key: string; value: string }>).map(row => [row.key, row.key === 'scrape_error' ? 'Discovery failed; see operator logs' : row.value]));
         const counts = Object.fromEntries((db.prepare('SELECT status,count(*) AS count FROM replays GROUP BY status').all() as Array<{ status: string; count: number }>).map(row => [row.status, row.count]));
         const active = db.prepare("SELECT id FROM replays WHERE status='processing' LIMIT 1").get();
-        json(response, { states, counts, active: active?.id ?? null, processorConfigured: true });
+        json(response, { states, counts, active: active?.id ?? null, processorConfigured: process.env.FLEA_PROCESSOR !== '' });
       } else if (url.pathname === '/api/replays') {
         const search = (url.searchParams.get('q') ?? '').toLowerCase();
         const mode = url.searchParams.get('mode') ?? '';

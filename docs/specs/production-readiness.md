@@ -1,7 +1,7 @@
 # Production-ready replay discovery and analysis
 
 Publication status: local draft for GitHub Issues in ykc1n/flea; use the agreed ready-for-agent label after review.
-Review status: native deployment requirements agreed; proposed testing seams await confirmation.
+Review status: native deployment requirements and testing seams accepted for implementation by the subsequent implement request. Release evidence is tracked separately.
 
 ## Problem Statement
 
@@ -77,7 +77,7 @@ keep disk use bounded without deleting published analysis.
 
 ## Testing Decisions
 
-- Proposed highest seam: exercise the running explorer through public HTTP requests and observe durable outcomes of discovery and worker execution. Supplement this with existing export ingestion and native process execution interfaces for malformed-export and descendant-cleanup checks that HTTP alone cannot isolate. Use native Windows and Linux rehearsals for real acquisition and engine compatibility. These seams remain proposed pending user confirmation.
+- Test the running explorer through public HTTP requests and observe durable outcomes of discovery and worker execution. Supplement this with existing export ingestion and native process execution interfaces for malformed-export and descendant-cleanup checks that HTTP alone cannot isolate. Use native Windows and Linux rehearsals for real acquisition and engine compatibility.
 - Assert observable outcomes, not private call order, SQL text, or module organization. Reuse existing real SQLite tests, public Battle fixtures, and export fixtures as prior art; strengthen their guarantees rather than duplicating implementation-shaped tests.
 - Test chronological eligibility, Battle ID tie-breaks, blocked-job skipping, retry schedules, restart persistence, attempt exhaustion, explicit requeue, and interruption on the final attempt.
 - Use controlled acquisition adapters and clocks for deterministic unavailable-content and retry tests; validate the chosen real acquisition adapter separately against upstream exact-version content.

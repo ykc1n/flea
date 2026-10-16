@@ -56,8 +56,10 @@ exhausted processing require an explicit operator retry:
 npm run requeue -- 2524251
 ~~~
 
-Engine ownership is recorded before execution. Timeout and cancellation terminate
-the owned process tree; restart verifies the persisted owner's identity before
+Engine ownership is recorded before execution. Windows uses Job Objects with
+atomic child association and confirmed empty-job cleanup; Linux uses an owned
+process group. Custom processors must not daemonize or escape that Linux group.
+Timeout and cancellation terminate the owned processes; restart verifies the persisted owner's identity before
 terminating it. Partial exports are discarded. Full engine logs stay private in
 data/jobs/<battle-id>; public responses contain readable explanations only.
 

@@ -53,3 +53,24 @@ test('restart recovery terminates the owned engine tree after worker death', asy
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('a successful command cannot abandon a detached engine descendant', async () => {
+  const { execute } = await import('../src/execution.js');
+  const directory = mkdtempSync(resolve(tmpdir(), 'flea-detached-'));
+  const log = resolve(directory, 'processor.log');
+  let pid = 0;
+  try {
+    const command = `const {spawn}=require('node:child_process');const p=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore',windowsHide:true});console.log(p.pid);p.unref();`;
+    // POSIX descendants deliberately escaping the process group are outside the
+    // supported processor contract; Windows Job Objects prohibit that escape.
+    if (process.platform !== 'win32') return;
+    await execute([process.execPath, '-e', command], { log, timeout: 15 });
+    pid = Number(readFileSync(log, 'utf8').trim());
+    assert.ok(pid > 0);
+    await new Promise(done => setTimeout(done, 100));
+    assert.throws(() => process.kill(pid, 0));
+  } finally {
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* already terminated */ } }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

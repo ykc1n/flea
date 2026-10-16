@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { analyze } from '../src/analysis.js';
-import { listingIds, parseDetail } from '../src/scrape.js';
+import { fetchBytes, listingIds, parseDetail } from '../src/scrape.js';
 import { connect, unpack, upsert, recoverJobs, requeue, type Database, type ReplayRow } from '../src/store.js';
 import { processOne } from '../src/worker.js';
 import { createFleaServer } from '../src/server.js';
@@ -220,4 +220,48 @@ test('large valid exports do not exceed JavaScript argument limits', async () =>
   writeFileSync(path, '{"type":"meta","mapWidth":100,"mapHeight":100,"fullView":true}\n' + '{"type":"team_died","team":0,"time":1}\n'.repeat(200_000) + '{"type":"game_over","time":2}');
   const result = await analyze(path);
   assert.equal(result.duration, 2); assert.equal(result.events.length, 200_001);
+});
+
+test('idle cleanup retries deletion of a published replay download', async () => {
+  upsert(db, replay);
+  db.prepare("UPDATE replays SET status='ready' WHERE id=?").run(replay.id);
+  const job = resolve(temporary, 'jobs', String(replay.id));
+  mkdirSync(job, { recursive: true });
+  const download = resolve(job, 'replay.sdfz');
+  writeFileSync(download, 'disposable download left after a transient file lock');
+  process.env.FLEA_PROCESSOR = '["processor"]';
+  assert.equal(await processOne(db), false);
+  assert.equal(existsSync(download), false);
+  assert.equal(unpack(db.prepare('SELECT * FROM replays').get() as unknown as ReplayRow).status, 'ready');
+});
+
+test('processing retries stop after three attempts and remain operator-retryable', async () => {
+  upsert(db, replay);
+  process.env.FLEA_PROCESSOR = '["processor"]';
+  let now = 1000;
+  const dependencies = { now: () => now, fetchReplay: async () => Buffer.from([0x1f, 0x8b]), runProcessor: async () => { throw new Error('engine failed'); } };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    assert.equal(await processOne(db, dependencies), true);
+    assert.equal(await processOne(db, dependencies), false);
+    now += 60_000;
+  }
+  assert.equal(await processOne(db, dependencies), false);
+  assert.equal(requeue(db, replay.id), 1);
+  assert.equal(await processOne(db, dependencies), true);
+});
+
+test('replay redirects allow the official blob host and reject other destinations before fetching them', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  try {
+    globalThis.fetch = async input => {
+      calls.push(String(input));
+      return calls.length === 1 ? new Response(null, { status: 302, headers: { location: 'https://zerok.blob.core.windows.net/replays/example.sdfz' } }) : new Response('demo');
+    };
+    assert.equal((await fetchBytes('https://zero-k.info/replays/example.sdfz')).toString(), 'demo');
+    calls.length = 0;
+    globalThis.fetch = async input => { calls.push(String(input)); return new Response(null, { status: 302, headers: { location: 'https://untrusted.invalid/replay' } }); };
+    await assert.rejects(fetchBytes('https://zero-k.info/replays/example.sdfz'), /Unexpected redirect/);
+    assert.equal(calls.length, 1);
+  } finally { globalThis.fetch = originalFetch; }
 });

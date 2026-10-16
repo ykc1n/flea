@@ -51,7 +51,7 @@ export function cacheRoot(): string {
   return cache;
 }
 
-export function cleanupJobs(activeId?: number): void {
+export function cleanupJobs(activeId?: number, readyIds: ReadonlySet<number> = new Set()): void {
   const jobs = resolve(dataRoot(), 'jobs');
   if (!existsSync(jobs)) return;
   const cutoff = Date.now() - 7 * 86_400_000;
@@ -61,15 +61,16 @@ export function cleanupJobs(activeId?: number): void {
     if (!lstatSync(job).isDirectory()) continue;
     for (const filename of readdirSync(job)) {
       const path = resolve(job, filename);
-      if (filename.endsWith('.partial') || filename === 'events.jsonl' || (filename === 'processor.log' && lstatSync(path).mtimeMs < cutoff)) rmSync(path, { force: true });
+      const disposable = filename.endsWith('.partial') || filename === 'events.jsonl' || (filename === 'replay.sdfz' && readyIds.has(Number(name))) || (['processor.log', 'acquisition.log'].includes(filename) && lstatSync(path).mtimeMs < cutoff);
+      if (disposable) { try { rmSync(path, { force: true }); } catch (error) { console.error('Deferred cleanup', error); } }
     }
   }
 }
 
 // The worker owns this entire cache and calls this only between jobs. Evicting
 // the whole idle cache preserves package/pool dependencies as a coherent set.
-export function reclaimIdleCache(): void {
-  cleanupJobs();
+export function reclaimIdleCache(readyIds: ReadonlySet<number> = new Set()): void {
+  cleanupJobs(undefined, readyIds);
   if (storageStatus().paused) {
     const cache = cacheRoot();
     // Check symlinks before recursively removing anything in managed storage.
