@@ -36,15 +36,15 @@ end
 function widget:GameFrame(frame)
   if not initialized then
     local spectating,fullView = Spring.GetSpectatingState()
-    emit({type='meta',mapWidth=Game.mapSizeX,mapHeight=Game.mapSizeZ,map=Game.mapName,fullView=fullView})
+    emit({type='meta',mapWidth=Game.mapSizeX,mapHeight=Game.mapSizeZ,map=Game.mapName,fullView=fullView,positionSampleSeconds=60})
     for _,id in ipairs(Spring.GetPlayerList()) do
       local name,active,spec,team,ally,ping,cpu,country,rank,custom = Spring.GetPlayerInfo(id,false)
       if not spec then emit({type='player',name=name,team=team,lobbyId=custom and custom.lobbyid,rank=rank}) end
     end
     initialized = true
   end
-  -- Five-second samples preserve paths without an event for every simulation tick.
-  if frame % (Game.gameSpeed*5) == 0 then
+  -- Lifecycle events retain exact times; movement snapshots are once per minute.
+  if frame % (Game.gameSpeed*60) == 0 then
     for _,id in ipairs(Spring.GetAllUnits()) do
       local def = Spring.GetUnitDefID(id)
       if def and UnitDefs[def].canMove then unitEvent('position',id,def,Spring.GetUnitTeam(id)) end

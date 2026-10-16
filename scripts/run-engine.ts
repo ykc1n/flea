@@ -32,12 +32,11 @@ const projectRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 copyFileSync(resolve(projectRoot, 'worker', 'flea_export.lua'), widget);
 mkdirSync(resolve(root, 'LuaUI', 'Config'), { recursive: true });
 const config = resolve(root, 'LuaUI', 'Config', 'ZK_data.lua');
-// This root belongs exclusively to Flea, never to a personal lobby installation.
-if (!existsSync(config)) {
-  writeFileSync(config, 'return { ["Local Widgets Config"] = { localWidgets = true, localWidgetsFirst = false } }\n');
-}
+// Refresh the dedicated profile; Zero-K persists UI settings at shutdown.
+copyFileSync(resolve(projectRoot, 'worker', 'headless-config.lua'), config);
+writeFileSync(resolve(root, 'LuaUI', 'Config', 'ZK_order.lua'), 'return {version=8,lastWidgetDetailLevel=2,["Flea Replay Export"]=1}\n');
 const engineConfig = resolve(root, 'springsettings.cfg');
-if (!existsSync(engineConfig)) writeFileSync(engineConfig, '');
+copyFileSync(resolve(projectRoot, 'worker', 'headless-settings.cfg'), engineConfig);
 // Isolation scans only the write root, so expose this exact engine's base assets.
 cpSync(resolve(dirname(executable), 'base'), resolve(root, 'base'), { recursive: true });
 const exported = resolve(root, 'LuaUI', 'Logs', 'flea-events.jsonl');

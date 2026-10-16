@@ -41,7 +41,14 @@ Missing content or incompatible historical binaries block only the affected job.
 
 The dedicated write directory defaults to data/zero-k, inside FLEA_DATA.
 Never point this at a personal Zero-K installation. Flea installs its original
-LuaUI export widget and enables local widgets there. Downloaded executables run
+LuaUI exporter and an exporter-only widget profile there. Optional model
+preloading, texture-memory preallocation, sound, and presentation effects are
+disabled. The exact game's simulation and required game rules remain enabled.
+Profiles are refreshed before each replay; personal lobby settings are untouched.
+Positions are sampled every 60 simulated seconds; unit lifecycle and factory
+events retain their exact simulation timestamps. Sampling cadence is stored in
+telemetry metadata, so existing five-second analyses still display correctly.
+Downloaded executables run
 as the worker's user: use a dedicated unprivileged account for public hosting.
 Linux hosts must supply the shared libraries required by their matching engine;
 loader failures remain blocked with private diagnostic logs.

@@ -2,6 +2,10 @@
 
 Recorded baseline: [October 16, 2026 Windows results](benchmark-results-2026-10-16.md).
 
+The current runner uses an exporter-only widget profile and 60-second position
+sampling. The recorded baseline predates those changes; do not mix the two
+profiles when comparing repeated runs.
+
 On Windows, run `npm run benchmark`. Defaults are battle 2524251 (a verified duel)
 and 2525057 (a larger team match), twice each, sequentially. This is real engine
 execution, not a synthetic load generator. It does not change the running site's

@@ -48,6 +48,7 @@ export async function analyze(path: string): Promise<Analysis> {
     if (event.type === 'meta') {
       if (meta.mapWidth) throw new InvalidExport('Duplicate metadata');
       if (!nonnegative(event.mapWidth) || !event.mapWidth || !nonnegative(event.mapHeight) || !event.mapHeight) throw new InvalidExport('Invalid map dimensions');
+      if (event.positionSampleSeconds !== undefined && (!Number.isSafeInteger(event.positionSampleSeconds) || event.positionSampleSeconds <= 0 || event.positionSampleSeconds > 3600)) throw new InvalidExport('Invalid position sampling interval');
       meta = event;
       continue;
     }

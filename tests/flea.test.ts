@@ -76,6 +76,18 @@ test('rejects incomplete exports', async () => {
   await assert.rejects(analyze(path), /Incomplete/);
 });
 
+test('preserves minute sampling metadata and rejects invalid sampling intervals', async () => {
+  const path = resolve(temporary, 'events');
+  makeExport(path);
+  const original = readFileSync(path, 'utf8');
+  writeFileSync(path, original.replace('"fullView":true', '"fullView":true,"positionSampleSeconds":60'));
+  assert.equal((await analyze(path)).meta.positionSampleSeconds, 60);
+  for (const interval of [0, -1, 1.5, 3601, '60']) {
+    writeFileSync(path, original.replace('"fullView":true', `"fullView":true,"positionSampleSeconds":${JSON.stringify(interval)}`));
+    await assert.rejects(analyze(path), /sampling interval/);
+  }
+});
+
 test('rejects exports without explicit full spectator visibility', async () => {
   const path = resolve(temporary, 'events');
   makeExport(path);

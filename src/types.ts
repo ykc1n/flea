@@ -34,6 +34,7 @@ export interface EngineEvent {
   mapWidth?: number;
   mapHeight?: number;
   fullView?: boolean;
+  positionSampleSeconds?: number;
   [key: string]: unknown;
 }
 
