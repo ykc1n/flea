@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -34,13 +34,16 @@ mkdirSync(resolve(root, 'LuaUI', 'Config'), { recursive: true });
 const config = resolve(root, 'LuaUI', 'Config', 'ZK_data.lua');
 // This root belongs exclusively to Flea, never to a personal lobby installation.
 if (!existsSync(config)) {
-  const { writeFileSync } = await import('node:fs');
   writeFileSync(config, 'return { ["Local Widgets Config"] = { localWidgets = true, localWidgetsFirst = false } }\n');
 }
+const engineConfig = resolve(root, 'springsettings.cfg');
+if (!existsSync(engineConfig)) writeFileSync(engineConfig, '');
+// Isolation scans only the write root, so expose this exact engine's base assets.
+cpSync(resolve(dirname(executable), 'base'), resolve(root, 'base'), { recursive: true });
 const exported = resolve(root, 'LuaUI', 'Logs', 'flea-events.jsonl');
 rmSync(exported, { force: true });
 // The managed execution owner controls this runner and its engine as one tree.
-await run([executable, '--write-dir', root, replay], root);
+await run([executable, '--only-local', '--isolation', '--isolation-dir', root, '--config', engineConfig, '--write-dir', root, replay], root);
 if (!existsSync(exported)) throw new Error('No export: enable local widgets and Flea Replay Export in the Zero-K installation');
 copyFileSync(exported, output);
 rmSync(exported, { force: true });

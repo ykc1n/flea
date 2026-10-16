@@ -16,7 +16,8 @@
     "demo": "node dist/scripts/demo.js",
     "requeue": "node dist/scripts/requeue.js",
     "backup": "node dist/scripts/backup.js",
-    "verify": "node dist/scripts/verify.js"
+    "verify": "node dist/scripts/verify.js",
+    "benchmark": "npm run build && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/benchmark.ps1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
