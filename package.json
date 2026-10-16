@@ -1,0 +1,29 @@
+{
+  "name": "flea",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Zero-K replay explorer and processing worker",
+  "type": "module",
+  "engines": {
+    "node": ">=22.16"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/tests/*.test.js && node --check web/app.js",
+    "server": "node dist/src/server.js",
+    "worker": "node dist/src/worker.js",
+    "host": "node dist/src/host.js",
+    "demo": "node dist/scripts/demo.js",
+    "requeue": "node dist/scripts/requeue.js",
+    "backup": "node dist/scripts/backup.js",
+    "verify": "node dist/scripts/verify.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/yauzl": "^3.4.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "yauzl": "^3.4.0"
+  }
+}

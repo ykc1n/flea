@@ -58,7 +58,7 @@ function widget:UnitDestroyed(id,def,team) unitEvent('destroyed',id,def,team) en
 function widget:TeamDied(team) emit({type='team_died',team=team}) end
 function widget:GameOver()
   emit({type='game_over'})
-  if output then output:flush() end
+  if output then output:flush(); output:close(); output=nil end
   Spring.SendCommands('quitforce')
 end
 function widget:Shutdown() if output then output:close(); output=nil end end

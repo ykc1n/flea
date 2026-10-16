@@ -7,13 +7,14 @@ Type=simple
 User=flea
 WorkingDirectory=/opt/flea
 EnvironmentFile=-/etc/flea.env
-ExecStart=/usr/bin/python3 -m flea.worker
+ExecStart=/usr/bin/node /opt/flea/dist/src/worker.js
 Restart=on-failure
 RestartSec=20
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/flea/data /var/lib/flea/Zero-K
+ReadWritePaths=/opt/flea/data
+TimeoutStopSec=45
 [Install]
 WantedBy=multi-user.target

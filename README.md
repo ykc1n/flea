@@ -1,123 +1,175 @@
 # flea
 
-A Zero-K replay explorer with hourly discovery, a durable processing queue, and engine-derived match timelines. The favicon is the [Flea unit portrait](https://github.com/ZeroK-RTS/Zero-K/blob/master/unitpics/spiderscout.png).
+A Zero-K replay explorer with hourly discovery, durable oldest-first processing,
+and engine-derived match timelines. Runs directly on Windows and Linux x64.
+Node.js 22.16 or newer is required. Docker is not used.
 
-## Run locally
+## Run
 
-Python 3.11+; the web app and worker use only the Python standard library. No Node or package installation is needed.
+~~~sh
+npm ci
+npm run build
+npm run host
+~~~
 
-```bash
-python3 -m flea.server
-# In a second terminal, from the same directory:
-python3 -m flea.worker
-```
+Open http://127.0.0.1:8080. The host supervises the browser and worker, with
+rotating logs under data/logs. Alternatively run npm run server and npm run worker
+separately. The worker discovers up to three recent listing pages every hour;
+use npm run worker -- --pages N to change that bounded window, or --once for a
+single discovery and drain of currently eligible work. Discovery continues during
+analysis. An explicitly empty FLEA_PROCESSOR disables analysis for metadata-only use.
 
-Open **http://127.0.0.1:8080**. The worker discovers recent battles immediately and every hour thereafter. The default is three listing pages per discovery; use `--pages N` to change the bounded discovery window. `python3 -m flea.worker --once` performs one discovery and drains eligible jobs. Keep the worker running under the supplied systemd service for unattended hourly ingestion. Simply uploading this repository does not start a hosted service.
+Every discovered Battle is browsable immediately. Waiting Replays show their
+metadata and source/download links. Blocked Replays show a red explanatory notice.
+Only complete, explicitly full-spectator-view Telemetry becomes ready. The archive
+searches metadata (including players, maps, and Battle IDs), not raw Telemetry.
+Archive listings are paginated without loading full analyses.
 
-The archive starts empty. For an optional, explicitly labeled illustrative match that exercises the timeline and map controls:
+Use npm run demo for clearly labeled synthetic demonstration data. Real Battle
+metadata is never supplemented with invented Telemetry.
 
-```bash
-python3 scripts/demo.py
-```
+## Automatic engine and content acquisition
 
-Demo telemetry is synthetic, stored only in your local database, and labeled in the archive and match detail. Real battle metadata is never supplemented with invented telemetry.
+Flea obtains the Replay's exact engine archive from Zero-K's engine distribution.
+It uses the pr-downloader executable included in that archive to acquire the
+requested game, map, and dependencies. Rapid's individual-file mode is used with
+TLS certificate checking enabled. No newer engine or game is silently substituted.
+Missing content or incompatible historical binaries block only the affected job.
 
-## Features
+The dedicated write directory defaults to data/zero-k, inside FLEA_DATA.
+Never point this at a personal Zero-K installation. Flea installs its original
+LuaUI export widget and enables local widgets there. Downloaded executables run
+as the worker's user: use a dedicated unprivileged account for public hosting.
+Linux hosts must supply the shared libraries required by their matching engine;
+loader failures remain blocked with private diagnostic logs.
 
-- Replay archive with search, game-mode and processing-state filters, pagination, and source/download links.
-- Battle maps, players, original rank badge identifiers, duration, game mode, game and engine versions.
-- First completed factory per engine team, mapped to players by lobby ID or name.
-- Completed unit production totals, construction/destruction events, and team elimination events.
-- Filterable event timeline, event-to-time navigation, playback speed, JSON export, and sampled movement trails over the minimap.
-- SQLite WAL storage, deduplicated discovery, persistent processing states, three bounded retries, worker singleton lock, and crash recovery.
-- A pipeline view showing queue state, discovery errors, and processor configuration.
+Only one analysis runs at a time. Jobs sort by Battle start time, then Battle ID.
+The recorded UTC timestamp in Replay filenames supplies absolute chronology
+where the archive displays relative dates; missing/unparseable dates sort last by ID.
 
-## Engine setup
+Acquisition retries after 5 minutes, then 30 minutes, then every 6 hours.
+Acquisition failures do not consume processing attempts. Transient processing
+failures retry after one minute, up to three attempts. Invalid exports and
+exhausted processing require an explicit operator retry:
 
-**Replay analysis requires executing the replay in its matching Zero-K engine.** An `.sdfz` demo records simulation inputs; it is not a ready-made list of units and positions. Metadata discovery works without an engine; those replays remain queued until the processor is configured.
+~~~sh
+npm run requeue -- 2524251
+~~~
 
-1. Install a dedicated Zero-K portable installation on your worker host. Provision the matching engine versions, game archives, maps, and required shared libraries. Use the game lobby/content tooling to obtain the assets for each replay. Flea does not automatically install arbitrary engine binaries or game content.
-2. Run the installation once and enable **local widgets** in `LuaUI/Config/ZK_data.lua` (`["Local Widgets Config"] = { localWidgets = true, localWidgetsFirst = false }`). Ensure **Flea Replay Export** is enabled after the runner installs it. A headless engine must support LuaUI; a dedicated server binary without LuaUI will not export events.
-3. Configure an engine-version-to-executable map and the argv-based runner, using absolute paths:
+Engine ownership is recorded before execution. Timeout and cancellation terminate
+the owned process tree; restart verifies the persisted owner's identity before
+terminating it. Partial exports are discarded. Full engine logs stay private in
+data/jobs/<battle-id>; public responses contain readable explanations only.
 
-```bash
-export FLEA_ZK_ROOT=/var/lib/flea/Zero-K
-export FLEA_ENGINES='{"2026.07.04":"/var/lib/flea/Zero-K/engine/2026.07.04/spring-headless"}'
-export FLEA_PROCESSOR='["python3","/opt/flea/scripts/run_engine.py","--replay","{replay}","--output","{output}","--engine","{engine}","--game","{game}"]'
-python3 -m flea.worker
-```
+The runner can also use a custom FLEA_PROCESSOR JSON argv array, executed without
+a shell. Placeholders: {id}, {replay}, {output}, {work}, {engine}, {game}.
+The command must block, exit successfully, and produce JSONL at {output}.
+Required evidence includes one meta record with positive map dimensions and
+fullView:true, valid identities for player/unit events, nonnegative event times,
+and a final game_over record. The original exporter is worker/flea_export.lua.
+Ingestion is limited to 64 MB, 500,000 records, and 65,536 characters per line.
 
-Adjust the paths and versions to your installed engine. These are configuration examples, not bundled executables. Each battle carries its required engine and game version. The replay selects its game archive; missing/incompatible content produces a failed job with a visible error. Run the web process with the same processor environment if you want the pipeline view to report it as configured.
+## Storage
 
-`worker/flea_export.lua` is original code. It exports JSONL for metadata, player identities, unit creation/completion/destruction, team elimination, five-second movement samples, and a final `game_over` marker. Full spectator view is requested. `scripts/run_engine.py` copies the widget into the dedicated installation, runs the selected headless engine, and copies its export to the job directory. Only one worker may use a given database, and each deployment must use a dedicated game write directory. Keep this directory outside any personal game installation.
+Defaults: 50 GB managed data budget and 5 GB free host space reserve, measured in
+decimal bytes. Acquisition pauses visibly at the budget or below the reserve.
+In-process transfers check space while writing; external downloader/engine writes
+are monitored periodically and terminated on pressure, so native buffered writes
+can briefly exceed a configured threshold. Keep the free-space reserve.
 
-The analyzer rejects incomplete exports. First factory means the first **completed** factory; completed structures are included in production counts. Movement paths are sampled, not exact per-frame recordings. Rank identifiers are the original Zero-K badge values, not estimated Elo. Battle-page team numbers and engine team IDs are distinct and are joined through player identities. Automated mode classification uses the visible teams/player/bot metadata; unusual missions or custom modes may need a richer classifier.
+Validated analysis is saved before downloaded Replay and raw export files are
+deleted. Each job's diagnostic logs are capped at 1 MB and retained seven days.
+Host logs rotate at about 1 MB per file. Published metadata and analysis are never
+evicted. If cleanup cannot clear pressure, the entire idle dependency cache may
+be evicted as one coherent set; active dependencies are protected. Cache content
+is acquired again when needed.
 
-**Verification limit:** metadata parsing has been checked against a real Zero-K battle page. Automated tests cover event aggregation and the worker using a simulated processor. A full real-engine replay has not been executed in the development environment; validate your headless installation and widget visibility against a known replay before relying on telemetry in production.
+## Native hosting
 
-### Custom processor contract
+### Windows
 
-`FLEA_PROCESSOR` is a JSON array of arguments, executed without a shell. Supported placeholders: `{id}`, `{replay}`, `{output}`, `{work}`, `{engine}`, `{game}`. The command must block until completion, exit successfully, and write JSONL to `{output}`. Required records:
+~~~powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\windows\install-hosting.ps1
+~~~
 
-```json
-{"type":"meta","mapWidth":8192,"mapHeight":8192}
-{"type":"player","team":0,"name":"Player","lobbyId":123}
-{"type":"finished","time":25,"team":0,"unitId":42,"unit":"factoryspider","name":"Spider Factory","factory":true,"x":1024,"z":2048}
-{"type":"position","time":30,"team":0,"unitId":43,"x":1100,"z":2100}
-{"type":"game_over","time":900}
-```
+This builds the app and registers Flea Replay Explorer for the current user at
+sign-in. It starts immediately and supervises both processes. It does not start
+before sign-in. Remove startup with deploy/windows/uninstall-hosting.ps1;
+application data is preserved. Persist desired environment settings for the
+sign-in user before installing.
 
-Also supported: `created`, `destroyed`, `team_died`. Event times are seconds. Positions use engine map coordinates. The final marker prevents partial/crashed exports being marked ready.
+### Linux
 
-## Deployment
+Install at /opt/flea, build with npm ci and npm run build, and create an
+unprivileged flea user with write access to /opt/flea/data. Install the units in
+deploy/ and configure /etc/flea.env as needed. Enable:
 
-```bash
-docker compose up --build -d
-```
+~~~sh
+sudo systemctl enable --now flea-worker flea-web
+~~~
 
-The supplied Compose configuration starts the browser and metadata discovery worker with shared persistent storage. For engine analysis, mount your dedicated Zero-K installation into the worker, install its runtime libraries in an extended image, and provide the processor environment above. The standard Python image intentionally does not contain a game engine. Bindings default to localhost; use a TLS reverse proxy for public hosting. There are no public mutation endpoints.
+Set both processes to use the same absolute FLEA_DB and FLEA_DATA. Retain the
+systemd process-group cleanup behavior. Use a TLS reverse proxy for public
+hosting; bindings default to localhost. Public mutation endpoints are absent.
 
-For a Linux host, install the app at `/opt/flea`, create a `flea` service user and writable `/opt/flea/data` and `/var/lib/flea/Zero-K` directories, configure `/etc/flea.env`, and install the units in `deploy/`. Enable with `systemctl enable --now flea-worker flea-web`. The worker itself schedules hourly discovery; no extra cron job is needed. Logs go to the systemd journal, with per-job engine logs under `data/jobs/<battle-id>/processor.log`.
-
-Configuration:
+## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FLEA_DB` | `data/flea.sqlite3` | Shared SQLite database |
-| `FLEA_DATA` | `data` | Download/job directory |
-| `FLEA_PROCESSOR` | unset | JSON argv array for analysis |
-| `FLEA_PROCESS_TIMEOUT` | `3600` | Maximum processor duration in seconds |
-| `FLEA_ZK_ROOT` | unset | Dedicated writable Zero-K install |
-| `FLEA_ENGINES` | `{}` | Installed version-to-executable JSON mapping |
+| FLEA_DATA | data | Managed downloads, caches, jobs, logs |
+| FLEA_DB | FLEA_DATA/flea.sqlite3 | Shared SQLite WAL database |
+| FLEA_HOST | 127.0.0.1 | Browser bind address |
+| FLEA_PORT | 8080 | Browser port |
+| FLEA_ZK_ROOT | FLEA_DATA/zero-k | Dedicated cache inside managed data |
+| FLEA_PROCESSOR | automatic acquisition and runner | Optional JSON argv override; empty disables |
+| FLEA_PROCESS_TIMEOUT | 3600 | Processing deadline, seconds |
+| FLEA_STORAGE_BYTES | 50000000000 | Managed storage budget |
+| FLEA_RESERVE_BYTES | 5000000000 | Host free-space reserve |
 
-Failed jobs retry at most three times. After fixing a content/setup issue, requeue one battle with:
+Keep the database inside managed storage if its size should count toward the budget.
 
-```bash
-python3 scripts/requeue.py 2524251
-```
+## Backup and restore
 
-Use an independent database and Zero-K write directory for a second deployment. Back up SQLite with its backup API or stop both services before copying the database; preserve the WAL if copying live files.
+~~~sh
+npm run backup -- create /absolute/path/flea-backup.sqlite
+npm run backup -- restore /absolute/path/flea-backup.sqlite /new/path/flea.sqlite3
+~~~
 
-## API
+Backup uses SQLite's consistent online backup operation and includes metadata and
+published Telemetry. Caches are intentionally excluded. Restore verifies database
+integrity and refuses to overwrite an existing destination or WAL. Stop both
+processes before switching FLEA_DB to the restored path; restart the worker to
+recover interrupted jobs. Never copy a live SQLite database without its WAL.
 
-- `GET /api/replays?q=&mode=&status=&offset=0` — up to 24 results plus total.
-- `GET /api/replays/<id>` — replay metadata and full analysis, or `null` analysis while queued.
-- `GET /api/status` — counts, last discovery, latest scrape error, configuration state.
+## Verification
 
-## Validation
+~~~sh
+npm test
+npm run verify -- 2524251
+~~~
 
-```bash
-python3 -m unittest discover -s tests -v
-node --check web/app.js  # optional local JS syntax check; also runs in CI
-```
+The verification command creates an independent data directory, acquires exact
+dependencies, processes one real Replay, and prints identities, full-view evidence,
+duration, production count, and first factories. It requires network access and
+may download hundreds of MB. It refuses to overwrite an existing verification
+directory. Rehearse interruption, restart, and restore on both native host platforms
+before claiming release readiness. See docs/production-verification.md for actual
+evidence and outstanding host-specific checks.
 
-Tests use public battle-page fixtures and simulated engine output. They verify real metadata extraction, deduplication, state preservation, first factory and production aggregation, movement samples, incomplete exports, successful processing, retry limits, and an unconfigured worker.
+## Public requests
+
+- GET /api/replays?q=&mode=&status=&offset=0: metadata/card summaries, 24 per page.
+- GET /api/replays/<id>: metadata and full analysis when ready.
+- GET /api/status: queue counts, active Replay, discovery and storage status.
 
 ## Sources and credits
 
-- [Zero-K battle archive](https://zero-k.info/Battles): replay metadata, ranks, minimaps, demo downloads.
-- [Zero-K](https://github.com/ZeroK-RTS/Zero-K): Flea portrait and game. Artwork remains under its upstream license; see [upstream licensing](https://github.com/ZeroK-RTS/Zero-K/blob/master/LICENSE).
-- [Gex](https://github.com/Varunda/gex) and the [provided match timeline](https://gex.honu.pw/match/60f7cf6a6cc93fb2be4b7ce4dbf84436): product inspiration.
-- [ZK Stats](https://github.com/esainane/zkstats): reference for engine-driven replay extraction. No code copied.
+[Zero-K battle archive](https://zero-k.info/Battles) supplies public metadata and
+Replay downloads. The favicon is the [Flea portrait](https://github.com/ZeroK-RTS/Zero-K/blob/master/unitpics/spiderscout.png).
+Artwork remains under [upstream licensing](https://github.com/ZeroK-RTS/Zero-K/blob/master/LICENSE).
+[Gex](https://github.com/Varunda/gex) provided product inspiration;
+[ZK Stats](https://github.com/esainane/zkstats) is a reference for engine-driven extraction.
 
-Flea's original source is MIT licensed. Upstream artwork and public test fixtures are excluded from that grant. Flea is an independent community tool and is not affiliated with the Zero-K team.
+Flea's original source is MIT licensed. Upstream artwork, binaries, and public
+test fixtures retain their respective upstream licenses. Flea is independent of
+and unaffiliated with the Zero-K team.
